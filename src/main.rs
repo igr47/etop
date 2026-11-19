@@ -1,9 +1,6 @@
-use std::{char, io};
-use std::str::Lines;
-use std::time::{self, Duration, Instant};
-use ratatui::crossterm::event::Event::Key;
+use std::time::{Duration, Instant};
 use ratatui::crossterm::event::{self, Event, KeyEvent, KeyEventKind, KeyCode};
-use ratatui::widgets::{Paragraph, Block, BorderType, Gauge, LineGauge, Sparkline, Axis, Chart, Dataset, GraphType, Table, TableState, Row};
+use ratatui::widgets::{Block, BorderType, Gauge, LineGauge, Sparkline, Axis, Chart, Dataset, GraphType, Table, TableState, Row};
 use ratatui::{DefaultTerminal, Frame};
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Style, Color, Stylize};
@@ -45,7 +42,7 @@ struct App {
 }
 
 fn main() -> std::io::Result<()> {
-    ratatui::run(|terminal| App::new().run(terminal));
+    ratatui::run(|terminal| App::new().run(terminal))?;
     Ok(())
 }
 
@@ -303,6 +300,8 @@ impl App{
 
         let line = Line::from(vec![
             "Ratatui Monitor".bold().fg(ACCENT),
+            sep.clone(),
+            self.os_name.clone().bold(),
             sep.clone(),
             self.host_name.clone().bold(),
             sep.clone(),
