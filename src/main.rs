@@ -1,20 +1,22 @@
-use std::io;
+use std::{char, io};
 use std::str::Lines;
 use std::time::{self, Duration, Instant};
 use ratatui::crossterm::event::Event::Key;
 use ratatui::crossterm::event::{self, Event, KeyEvent, KeyEventKind, KeyCode};
-use ratatui::widgets::{Paragraph, Block, BorderType, Gauge, LineGauge, Sparkline};
+use ratatui::widgets::{Paragraph, Block, BorderType, Gauge, LineGauge, Sparkline, Axis, Chart, Dataset, GraphType};
 use ratatui::{DefaultTerminal, Frame};
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Style, Color, Stylize};
 use ratatui::text::{Span, Line};
 use sysinfo::{System, MINIMUM_CPU_UPDATE_INTERVAL, Disks};
 use std::collections::VecDeque;
+use ratatui::symbols::Marker;
 
 const TICK_RATE: Duration = Duration::from_millis(500);
 const MUTED: Color = Color::DarkGray;
 const ACCENT: Color = Color::LightBlue;
 const HISTORY_LEN: usize = 120;
+const RAM_COLOR: Color = Color::Magenta;
 
 struct App {
     running: bool,
@@ -23,6 +25,7 @@ struct App {
     host_name: String,
     os_name: String,
     cpu_history: VecDeque<f64>,
+    ram_history: VecDeque<f64>,
 }
 
 fn main() -> std::io::Result<()> {
@@ -44,6 +47,7 @@ impl App{
             host_name: System::host_name().unwrap_or_else(|_| "unknown".into()),
             os_name: System::long_os_version().unwrap_or_else(|_| "unknown".into()),
             cpu_history: VecDeque::with_capacity(HISTORY_LEN),
+            ram_history: VecDeque::with_capacity(HISTORY_LEN),
         };
 
         app.on_tick();
@@ -90,6 +94,8 @@ impl App{
         self.disks.refresh(true);
 
         push_history(&mut self.cpu_history, self.system.global_cpu_usage() as f64);
+        let ram = percent(self.system.used_memory(), self.system.total_memory());
+        push_history(&mut self.ram_history, ram);
     }
 
     fn render(&mut self, frame: &mut Frame) {
@@ -115,7 +121,7 @@ impl App{
         self.render_header(frame, header);
         self.render_cpu(frame, cpu);
         self.render_memory(frame, memory);
-        frame.render_widget(panel("History"), history);
+        self.render_history(frame, history);
         frame.render_widget(panel("Processes"), processes);
         self.render_footer(frame, footer)
     }
@@ -223,6 +229,48 @@ impl App{
         frame.render_widget(block.title(line), area);
     }
 
+    fn render_history(&mut self,  frame: &mut Frame, area: Rect) {
+        let cpu_points = to_points(&mut self.cpu_history);
+        let ram_points = to_points(&mut self.ram_history);
+
+        let datasets = vec![
+            Dataset::default()
+                .name("cpu")
+                .marker(Marker::Braille)
+                .graph_type(GraphType::Line)
+                .style(ACCENT)
+                .data(&cpu_points),
+            Dataset::default()
+                .name("ram")
+                .marker(Marker::Braille)
+                .graph_type(GraphType::Line)
+                .style(RAM_COLOR)
+                .data(&ram_points),
+        ];
+
+        let x_axis = Axis::default()
+            .bounds([0.0, (HISTORY_LEN - 1) as f64])
+            .labels(["60s Ago", "30s", "now"])
+            .style(MUTED);
+
+        let y_axis = Axis::default()
+            .bounds([0.0, 100.0])
+            .labels(["0%", "50%", "100%"])
+            .style(MUTED);
+
+        let legend = Line::from(vec!["cpu".fg(ACCENT), "ram".fg(RAM_COLOR)]).right_aligned();
+
+        let block = panel("History 60s").title_top(legend);
+
+        let chart = Chart::new(datasets)
+            .block(block)
+            .x_axis(x_axis)
+            .y_axis(y_axis)
+            .legend_position(None);
+
+        frame.render_widget(chart, area);
+    }
+
     fn render_footer(&mut self, frame: &mut Frame, area: Rect) {
         let key = |k: &'static str, desc: &'static str | {
             [
@@ -288,4 +336,14 @@ fn push_history(history: &mut VecDeque<f64>, value: f64) {
     if history.len() > HISTORY_LEN {
         history.pop_front();
     }
+}
+
+fn to_points(history: &mut VecDeque<f64>) -> Vec<(f64, f64)> {
+    let offset = HISTORY_LEN - history.len();
+
+    history
+        .iter()
+        .enumerate()
+        .map(|(i, value)| ((offset + i) as f64, *value))
+        .collect()
 }
